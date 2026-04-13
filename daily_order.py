@@ -85,16 +85,14 @@ if not raw_df.empty:
     client_col = "거래처명"
     time_col = "시간"
 
-    # 💡 [핵심 추가] 품명이 공백인 유령 데이터 완벽 차단!
+    # 품명이 공백인 유령 데이터 차단
     if item_col in raw_df.columns:
-        # 공백 다 자르고 텅 빈 글자("")가 아닌 것만 살려둡니다.
         raw_df = raw_df[raw_df[item_col].astype(str).str.strip() != ""]
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목별 발주수량"])
 
     actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, time_col] if c in raw_df.columns]
 
-    # 날짜 정렬 함수 (4. 10 형태 대응)
     def sort_dates(date_list):
         def parse_date(d):
             nums = re.findall(r'\d+', str(d))
@@ -133,10 +131,11 @@ if not raw_df.empty:
                 height=d_height
             )
 
+            # 💡 [버그 수정 완료] 중복된 인덱스 검색 로직을 제거했습니다!
             confirmed_now = edited_df[edited_df["👉 확정"] == True].index
             if len(confirmed_now) > 0:
-                original_indices = pending_df.index[confirmed_now]
-                st.session_state['confirmed_indices'].update(original_indices)
+                # edited_df의 인덱스가 이미 원본의 줄 번호이므로 그대로 업데이트합니다.
+                st.session_state['confirmed_indices'].update(confirmed_now)
                 st.toast(f"{len(confirmed_now)}건 확정!")
                 time.sleep(0.5)
                 st.rerun()
