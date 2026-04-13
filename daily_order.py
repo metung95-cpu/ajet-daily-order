@@ -64,8 +64,10 @@ def load_order_data():
         if item_col in df.columns:
             # 1. 앞뒤 공백 제거
             df[item_col] = df[item_col].astype(str).str.strip()
-            # 💡 [핵심 수정] '냉'으로 시작하는 모든 품목(냉장)을 아예 데이터에서 제거합니다.
-            df = df[~df[item_col].str.startswith('냉')]
+            
+            # 💡 [핵심 수정] '냉' 또는 '.냉'으로 시작하는 모든 품목을 한 번에 걸러냅니다.
+            df = df[~df[item_col].str.startswith(('냉', '.냉'))]
+            
             # 3. 빈 값 제거
             df = df[df[item_col] != ""]
             
