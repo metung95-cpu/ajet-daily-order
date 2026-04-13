@@ -85,7 +85,7 @@ if not raw_df.empty:
     client_col = "거래처명"
     time_col = "시간"
 
-    # 품명이 공백인 유령 데이터 차단
+    # 품명이 공백인 데이터 제거
     if item_col in raw_df.columns:
         raw_df = raw_df[raw_df[item_col].astype(str).str.strip() != ""]
 
@@ -113,6 +113,7 @@ if not raw_df.empty:
         else:
             pending_df = raw_df.copy()
 
+        # 이미 확정된 데이터 제외
         pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
         if item_col in pending_df.columns:
             pending_df = pending_df.sort_values(by=item_col)
@@ -122,19 +123,18 @@ if not raw_df.empty:
             pending_view["👉 확정"] = False 
             d_height = int((len(pending_view) + 1) * 35) + 10
 
-            edited_df = st.data_editor(
+            edited_df_t1 = st.data_editor(
                 pending_view,
                 column_config={"👉 확정": st.column_config.CheckboxColumn("출고완료", width="medium")},
                 disabled=actual_display_cols,
                 hide_index=True,
                 use_container_width=True,
-                height=d_height
+                height=d_height,
+                key="editor_pending"
             )
 
-            # 💡 [버그 수정 완료] 중복된 인덱스 검색 로직을 제거했습니다!
-            confirmed_now = edited_df[edited_df["👉 확정"] == True].index
+            confirmed_now = edited_df_t1[edited_df_t1["👉 확정"] == True].index
             if len(confirmed_now) > 0:
-                # edited_df의 인덱스가 이미 원본의 줄 번호이므로 그대로 업데이트합니다.
                 st.session_state['confirmed_indices'].update(confirmed_now)
                 st.toast(f"{len(confirmed_now)}건 확정!")
                 time.sleep(0.5)
@@ -143,13 +143,39 @@ if not raw_df.empty:
             st.info("예정된 출고 건이 없습니다.")
 
     with tab2:
-        st.subheader("출고 확정 내역")
-        confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])]
+        st.subheader("출고 확정 내역 (체크 시 다시 예정으로 이동)")
+        
+        # 확정된 데이터만 필터링
+        confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
+        
         if not confirmed_df.empty:
-            conf_view = confirmed_df[actual_display_cols]
+            if item_col in confirmed_df.columns:
+                confirmed_df = confirmed_df.sort_values(by=item_col)
+            
+            conf_view = confirmed_df[actual_display_cols].copy()
+            conf_view["👉 취소"] = False 
             c_height = int((len(conf_view) + 1) * 35) + 10
-            st.dataframe(conf_view, use_container_width=True, hide_index=True, height=c_height)
-            if st.button("내역 초기화"):
+            
+            # 💡 확정 탭에서도 에디터를 사용하여 취소 기능 구현
+            edited_df_t2 = st.data_editor(
+                conf_view,
+                column_config={"👉 취소": st.column_config.CheckboxColumn("확정취소", width="medium")},
+                disabled=actual_display_cols,
+                hide_index=True,
+                use_container_width=True,
+                height=c_height,
+                key="editor_confirmed"
+            )
+            
+            # 취소된 항목 처리
+            canceled_now = edited_df_t2[edited_df_t2["👉 취소"] == True].index
+            if len(canceled_now) > 0:
+                st.session_state['confirmed_indices'].difference_update(canceled_now)
+                st.toast(f"{len(canceled_now)}건 확정 취소!")
+                time.sleep(0.5)
+                st.rerun()
+                
+            if st.button("전체 내역 초기화"):
                 st.session_state['confirmed_indices'] = set()
                 st.rerun()
         else:
