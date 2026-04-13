@@ -11,11 +11,26 @@ import datetime
 # ------------------------------------------------------------------
 st.set_page_config(page_title="에이젯 발주 관리 시스템", page_icon="🥩", layout="wide")
 
-def check_login():
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
+# 💡 [핵심 추가] 브라우저를 새로고침해도 8시간 동안 날아가지 않는 '서버 메모리' 생성
+@st.cache_resource
+def get_app_state():
+    return {
+        "logged_in": False,
+        "login_expire_time": 0,
+        "confirmed_indices": set() # 확정 내역을 여기다 안전하게 보관!
+    }
 
-    if not st.session_state["logged_in"]:
+app_state = get_app_state()
+
+def check_login():
+    current_time = time.time()
+    
+    # 로그인 되어있는데 8시간(만료시간)이 지났으면 로그아웃 처리
+    if app_state["logged_in"] and current_time > app_state["login_expire_time"]:
+        app_state["logged_in"] = False
+        app_state["confirmed_indices"].clear() # 8시간 지나면 깔끔하게 확정 내역도 초기화
+
+    if not app_state["logged_in"]:
         st.title("🔒 에이젯 시스템 접속")
         with st.form("login_form"):
             user_id = st.text_input("아이디 (ID)")
@@ -23,7 +38,9 @@ def check_login():
             submitted = st.form_submit_button("로그인", type="primary", use_container_width=True)
             if submitted:
                 if user_id == "AZ" and user_pw == "5835":
-                    st.session_state["logged_in"] = True
+                    app_state["logged_in"] = True
+                    # 현재 시간 + 8시간(28800초) 설정
+                    app_state["login_expire_time"] = current_time + (8 * 3600)
                     st.success("인증되었습니다. 데이터를 불러옵니다...")
                     time.sleep(1)
                     st.rerun()
@@ -59,15 +76,12 @@ def load_order_data():
         df.columns = df.columns.str.strip()
         df = df.loc[:, df.columns != '']
         
-        # 품명 컬럼 확인 및 필터링
         item_col = "품명 브랜드 등급 EST"
         if item_col in df.columns:
             df[item_col] = df[item_col].astype(str).str.strip()
-            # '냉' 또는 '.냉'으로 시작하는 품목 제외
             df = df[~df[item_col].str.startswith(('냉', '.냉'))]
             df = df[df[item_col] != ""]
             
-        # 수량 정수 변환 및 0 제거
         qty_col = "수량(BOX)"
         if qty_col in df.columns:
             df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
@@ -82,18 +96,21 @@ def load_order_data():
 # 3. 메인 로직 및 탭 구성
 # ------------------------------------------------------------------
 st.title("🥩 AZ 발주확인(운영부)")
+
+# 사이드바에 남은 시간 표시
 st.sidebar.success(f"현재 접속: AZ 관리자")
-if st.sidebar.button("로그아웃"):
-    st.session_state["logged_in"] = False
+remaining_seconds = int(app_state["login_expire_time"] - time.time())
+hours, remainder = divmod(remaining_seconds, 3600)
+minutes, _ = divmod(remainder, 60)
+st.sidebar.info(f"⏳ 자동 로그아웃까지:\n\n**{hours}시간 {minutes}분 남음**")
+
+if st.sidebar.button("수동 로그아웃"):
+    app_state["logged_in"] = False
     st.rerun()
 
 raw_df = load_order_data()
 
 if not raw_df.empty:
-    if 'confirmed_indices' not in st.session_state:
-        st.session_state['confirmed_indices'] = set()
-
-    # 컬럼 정의
     date_col = next((c for c in raw_df.columns if '날짜' in c or '일자' in c or '일' in c), "날짜")
     item_col = "품명 브랜드 등급 EST"
     qty_col = "수량(BOX)"
@@ -105,17 +122,15 @@ if not raw_df.empty:
 
     actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, time_col] if c in raw_df.columns]
 
-    # 날짜 정렬 및 오늘 날짜 매칭 함수
     def sort_dates(date_list):
         def parse_date(d):
             nums = re.findall(r'\d+', str(d))
             return tuple(map(int, nums)) if nums else (0, 0)
         return sorted(date_list, key=parse_date, reverse=True)
 
-    # 💡 오늘 날짜 찾기 로직
     today = datetime.datetime.now()
-    today_m_d = f"{today.month}. {today.day}" # 예: 4. 13
-    today_d = str(today.day)                 # 예: 13
+    today_m_d = f"{today.month}. {today.day}"
+    today_d = str(today.day)
 
     # 탭 1: 출고 예정
     with tab1:
@@ -123,11 +138,10 @@ if not raw_df.empty:
             u_dates = [d for d in raw_df[date_col].unique() if str(d).strip() != '']
             sorted_dates = sort_dates(u_dates)
             
-            # 오늘 날짜와 일치하는 인덱스 찾기
-            default_index = 0 # 기본값: 전체 보기
+            default_index = 0
             for i, d in enumerate(sorted_dates):
                 if today_m_d in str(d) or str(d).strip() == today_d:
-                    default_index = i + 1 # '전체 보기'가 0번이므로 +1
+                    default_index = i + 1
                     break
             
             selected_date_t1 = st.selectbox(
@@ -143,7 +157,8 @@ if not raw_df.empty:
         else:
             pending_df = raw_df.copy()
 
-        pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
+        # 💡 세션 스테이트 대신 서버에 저장된 app_state 사용
+        pending_df = pending_df[~pending_df.index.isin(app_state['confirmed_indices'])]
         
         if item_col in pending_df.columns:
             sort_cols = [item_col]
@@ -167,7 +182,7 @@ if not raw_df.empty:
 
             confirmed_now = edited_df_t1[edited_df_t1["👉 확정"] == True].index
             if len(confirmed_now) > 0:
-                st.session_state['confirmed_indices'].update(confirmed_now)
+                app_state['confirmed_indices'].update(confirmed_now)
                 st.toast(f"{len(confirmed_now)}건 확정 완료!")
                 time.sleep(0.5)
                 st.rerun()
@@ -176,7 +191,7 @@ if not raw_df.empty:
 
     # 탭 2: 출고 확정
     with tab2:
-        confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
+        confirmed_df = raw_df[raw_df.index.isin(app_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
             if item_col in confirmed_df.columns:
                 sort_cols = [item_col]
@@ -199,27 +214,26 @@ if not raw_df.empty:
             
             canceled_now = edited_df_t2[edited_df_t2["👉 취소"] == True].index
             if len(canceled_now) > 0:
-                st.session_state['confirmed_indices'].difference_update(canceled_now)
+                app_state['confirmed_indices'].difference_update(canceled_now)
                 st.toast(f"{len(canceled_now)}건 확정 취소!")
                 time.sleep(0.5)
                 st.rerun()
                 
-            if st.button("전체 내역 초기화"):
-                st.session_state['confirmed_indices'] = set()
+            if st.button("전체 내역 초기화 (다시 예정으로)"):
+                app_state['confirmed_indices'].clear()
                 st.rerun()
         else:
             st.write("확정 내역이 없습니다.")
 
     # 탭 3: 집계 현황
     with tab3:
-        all_pending = raw_df[~raw_df.index.isin(st.session_state['confirmed_indices'])]
+        all_pending = raw_df[~raw_df.index.isin(app_state['confirmed_indices'])]
         
         if not all_pending.empty:
             if date_col in all_pending.columns:
                 u_dates_t3 = [d for d in all_pending[date_col].unique() if str(d).strip() != '']
                 sorted_dates_t3 = sort_dates(u_dates_t3)
                 
-                # 오늘 날짜와 일치하는 인덱스 찾기
                 default_index_t3 = 0
                 for i, d in enumerate(sorted_dates_t3):
                     if today_m_d in str(d) or str(d).strip() == today_d:
