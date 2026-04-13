@@ -98,15 +98,17 @@ if not raw_df.empty:
         pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
         
         if not pending_df.empty:
-            # 체크박스 컬럼 추가를 위해 데이터 편집 가능 모드(st.data_editor) 사용
-            # height=None으로 설정하여 전체 행이 보이도록 처리
+            # 💡 [핵심 수정] 데이터 개수에 맞춰 표 높이 자동 계산 (스크롤 방지)
+            # 행 개수 + 헤더(1) * 36픽셀(기본 높이) + 여백
+            dynamic_height = int((len(pending_df) + 1) * 36) + 3
+
             edited_df = st.data_editor(
                 pending_df.assign(확정=False),
                 column_config={"확정": st.column_config.CheckboxColumn("출고확정", default=False)},
                 disabled=[col for col in pending_df.columns],
                 hide_index=True,
                 use_container_width=True,
-                height=None 
+                height=dynamic_height  # 동적 높이 적용!
             )
 
             # 체크된 항목 찾기
@@ -123,8 +125,10 @@ if not raw_df.empty:
         st.subheader("출고 확정 내역")
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])]
         if not confirmed_df.empty:
-            # 확정 탭도 전체 스크롤을 위해 height=None
-            st.dataframe(confirmed_df, use_container_width=True, hide_index=True, height=None)
+            # 💡 [핵심 수정] 확정 탭도 동일하게 자동 높이 계산
+            conf_dynamic_height = int((len(confirmed_df) + 1) * 36) + 3
+            
+            st.dataframe(confirmed_df, use_container_width=True, hide_index=True, height=conf_dynamic_height)
             if st.button("확정 내역 초기화"):
                 st.session_state['confirmed_indices'] = set()
                 st.rerun()
@@ -144,6 +148,10 @@ if not raw_df.empty:
                 summary_df[qty_col] = pd.to_numeric(summary_df[qty_col], errors='coerce').fillna(0)
                 summary = summary_df.groupby(item_col)[qty_col].sum().reset_index()
                 summary.columns = ['품목명', '출고예정 총수량']
+                
+                # 수량이 0인 품목은 숨기기 위해 필터링
+                summary = summary[summary['출고예정 총수량'] > 0]
+                
                 st.table(summary) # 집계표는 깔끔하게 일반 테이블로 표시
             else:
                 st.warning("수량 또는 품목 컬럼을 찾을 수 없어 집계가 불가능합니다.")
