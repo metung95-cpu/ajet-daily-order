@@ -58,10 +58,10 @@ def load_order_data():
         df.columns = df.columns.str.strip()
         df = df.loc[:, df.columns != '']
         
-        # 💡 데이터 로드 시점부터 수량(BOX)이 0이거나 빈 값은 제거
+        # 💡 [핵심] 수량을 숫자로 바꿀 때 아예 '정수(int)'로 못을 박아버립니다!
         qty_col = "수량(BOX)"
         if qty_col in df.columns:
-            df[qty_col] = pd.to_numeric(df[qty_col].str.replace(',', ''), errors='coerce').fillna(0)
+            df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
             df = df[df[qty_col] > 0]
             
         return df
@@ -72,7 +72,7 @@ def load_order_data():
 # ------------------------------------------------------------------
 # 3. 메인 로직 및 탭 구성
 # ------------------------------------------------------------------
-st.title("🥩 에이젯 발주확인(운영부)")
+st.title("🥩 AZ 발주확인(운영부)")
 st.sidebar.success(f"현재 접속: AZ 관리자")
 if st.sidebar.button("로그아웃"):
     st.session_state["logged_in"] = False
@@ -92,7 +92,6 @@ if not raw_df.empty:
     client_col = "거래처명"
     time_col = "시간"
 
-    # 품명이 공백인 데이터 제거
     if item_col in raw_df.columns:
         raw_df = raw_df[raw_df[item_col].astype(str).str.strip() != ""]
 
@@ -198,7 +197,6 @@ if not raw_df.empty:
                 pivot_df = all_pending.copy()
                 pivot_df[manager_col] = pivot_df[manager_col].replace('', '미지정').fillna('미지정')
                 
-                # 피벗 테이블 생성
                 pivot_table = pd.pivot_table(
                     pivot_df, 
                     values=qty_col, 
@@ -211,8 +209,8 @@ if not raw_df.empty:
                 pivot_table['총 합계'] = pivot_table.sum(axis=1)
                 pivot_table = pivot_table.sort_values('총 합계', ascending=False)
                 
-                # 💡 [핵심] 0인 값은 빈칸으로 표시하여 가독성 높임
-                pivot_display = pivot_table.astype(object).replace(0, "")
+                # 💡 [핵심] 피벗 테이블의 모든 데이터를 확실하게 정수로 변환 후 0을 지웁니다.
+                pivot_display = pivot_table.astype(int).astype(object).replace(0, "")
                 pivot_display = pivot_display.reset_index()
                 pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
