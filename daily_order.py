@@ -57,6 +57,13 @@ def load_order_data():
         df = pd.DataFrame(data[1:], columns=data[0])
         df.columns = df.columns.str.strip()
         df = df.loc[:, df.columns != '']
+        
+        # 💡 데이터 로드 시점부터 수량(BOX)이 0이거나 빈 값은 제거
+        qty_col = "수량(BOX)"
+        if qty_col in df.columns:
+            df[qty_col] = pd.to_numeric(df[qty_col].str.replace(',', ''), errors='coerce').fillna(0)
+            df = df[df[qty_col] > 0]
+            
         return df
     except Exception as e:
         st.error(f"🚨 데이터 로드 실패: {e}")
@@ -65,7 +72,7 @@ def load_order_data():
 # ------------------------------------------------------------------
 # 3. 메인 로직 및 탭 구성
 # ------------------------------------------------------------------
-st.title("🥩 에이젯 발주확인(운영부)")
+st.title("🥩 에이젯 실시간 발주 관리")
 st.sidebar.success(f"현재 접속: AZ 관리자")
 if st.sidebar.button("로그아웃"):
     st.session_state["logged_in"] = False
@@ -77,7 +84,7 @@ if not raw_df.empty:
     if 'confirmed_indices' not in st.session_state:
         st.session_state['confirmed_indices'] = set()
 
-    # 컬럼 정의 (시트 기준)
+    # 컬럼 정의
     date_col = next((c for c in raw_df.columns if '날짜' in c or '일자' in c or '일' in c), "날짜")
     item_col = "품명 브랜드 등급 EST"
     qty_col = "수량(BOX)"
@@ -100,12 +107,12 @@ if not raw_df.empty:
         return sorted(date_list, key=parse_date, reverse=True)
 
     with tab1:
-        st.subheader("미출고 발주 건 (체크 시 확정 이동)")
+        st.subheader("미출고 발주 건")
         
         if date_col in raw_df.columns:
             u_dates = [d for d in raw_df[date_col].unique() if str(d).strip() != '']
             sorted_dates = sort_dates(u_dates)
-            selected_date_t1 = st.selectbox("📅 조회 날짜 선택 (최신순)", ["전체 보기"] + sorted_dates, key="t1_date")
+            selected_date_t1 = st.selectbox("📅 조회 날짜 선택", ["전체 보기"] + sorted_dates, key="t1_date")
             
             pending_df = raw_df.copy()
             if selected_date_t1 != "전체 보기":
@@ -113,7 +120,6 @@ if not raw_df.empty:
         else:
             pending_df = raw_df.copy()
 
-        # 이미 확정된 데이터 제외
         pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
         if item_col in pending_df.columns:
             pending_df = pending_df.sort_values(by=item_col)
@@ -121,7 +127,7 @@ if not raw_df.empty:
         if not pending_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
-            d_height = int((len(pending_view) + 1) * 35) + 10
+            d_height = int((len(pending_view) + 1) * 35) + 15
 
             edited_df_t1 = st.data_editor(
                 pending_view,
@@ -136,24 +142,20 @@ if not raw_df.empty:
             confirmed_now = edited_df_t1[edited_df_t1["👉 확정"] == True].index
             if len(confirmed_now) > 0:
                 st.session_state['confirmed_indices'].update(confirmed_now)
-                st.toast(f"{len(confirmed_now)}건 확정!")
+                st.toast(f"{len(confirmed_now)}건 확정 완료!")
                 time.sleep(0.5)
                 st.rerun()
         else:
             st.info("예정된 출고 건이 없습니다.")
 
     with tab2:
-        st.subheader("출고 확정 내역 (체크 시 다시 예정으로 이동)")
-        
+        st.subheader("출고 확정 내역")
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
         
         if not confirmed_df.empty:
-            if item_col in confirmed_df.columns:
-                confirmed_df = confirmed_df.sort_values(by=item_col)
-            
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
-            c_height = int((len(conf_view) + 1) * 35) + 10
+            c_height = int((len(conf_view) + 1) * 35) + 15
             
             edited_df_t2 = st.data_editor(
                 conf_view,
@@ -179,7 +181,7 @@ if not raw_df.empty:
             st.write("확정 내역이 없습니다.")
 
     with tab3:
-        st.subheader("🥩 품목별 / 👤 담당자별 출고 예정 수량")
+        st.subheader("🥩 품목별 / 👤 담당자별 출고 예정 현황")
         
         all_pending = raw_df[~raw_df.index.isin(st.session_state['confirmed_indices'])]
         
@@ -192,16 +194,9 @@ if not raw_df.empty:
                 if selected_date_t3 != "전체 보기":
                     all_pending = all_pending[all_pending[date_col] == selected_date_t3]
 
-            # 💡 [피벗 테이블 로직 추가] 품목(행) x 담당자(열)
             if qty_col in all_pending.columns and item_col in all_pending.columns and manager_col in all_pending.columns:
                 pivot_df = all_pending.copy()
-                
-                # 수량 컬럼을 숫자로 변환
-                pivot_df[qty_col] = pd.to_numeric(pivot_df[qty_col].str.replace(',', ''), errors='coerce').fillna(0)
-                
-                # 담당자 이름이 없는 경우 '미지정'으로 처리
-                pivot_df[manager_col] = pivot_df[manager_col].replace('', '미지정')
-                pivot_df[manager_col] = pivot_df[manager_col].fillna('미지정')
+                pivot_df[manager_col] = pivot_df[manager_col].replace('', '미지정').fillna('미지정')
                 
                 # 피벗 테이블 생성
                 pivot_table = pd.pivot_table(
@@ -213,23 +208,20 @@ if not raw_df.empty:
                     fill_value=0
                 )
                 
-                # '총 합계' 컬럼 추가
                 pivot_table['총 합계'] = pivot_table.sum(axis=1)
+                pivot_table = pivot_table.sort_values('총 합계', ascending=False)
                 
-                # 0인 데이터 필터링 및 인덱스 리셋
-                pivot_table = pivot_table[pivot_table['총 합계'] > 0]
-                pivot_table = pivot_table.reset_index()
-                
-                # 품목명 컬럼 이름 변경
-                pivot_table.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
+                # 💡 [핵심] 0인 값은 빈칸으로 표시하여 가독성 높임
+                pivot_display = pivot_table.astype(object).replace(0, "")
+                pivot_display = pivot_display.reset_index()
+                pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
                 st.markdown("---")
-                # 피벗 테이블 출력 (전체 화면 꽉 차게)
-                st.dataframe(pivot_table, use_container_width=True, hide_index=True)
+                st.dataframe(pivot_display, use_container_width=True, hide_index=True)
             else:
-                st.warning("수량, 품목, 또는 담당자 컬럼을 찾을 수 없어 상세 집계가 불가능합니다.")
+                st.warning("상세 집계를 위한 컬럼을 찾을 수 없습니다.")
         else:
-            st.write("집계할 데이터가 없습니다.")
+            st.write("집계할 예정 데이터가 없습니다.")
 
 else:
-    st.info("데이터를 불러오는 중입니다.")
+    st.info("데이터 로딩 중...")
