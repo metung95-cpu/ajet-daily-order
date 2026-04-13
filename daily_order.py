@@ -77,8 +77,6 @@ if not raw_df.empty:
     if 'confirmed_indices' not in st.session_state:
         st.session_state['confirmed_indices'] = set()
 
-    tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목별 발주수량"])
-
     # 컬럼 정의 (시트 기준)
     date_col = next((c for c in raw_df.columns if '날짜' in c or '일자' in c or '일' in c), "날짜")
     item_col = "품명 브랜드 등급 EST"
@@ -86,6 +84,13 @@ if not raw_df.empty:
     manager_col = "담당자"
     client_col = "거래처명"
     time_col = "시간"
+
+    # 💡 [핵심 추가] 품명이 공백인 유령 데이터 완벽 차단!
+    if item_col in raw_df.columns:
+        # 공백 다 자르고 텅 빈 글자("")가 아닌 것만 살려둡니다.
+        raw_df = raw_df[raw_df[item_col].astype(str).str.strip() != ""]
+
+    tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목별 발주수량"])
 
     actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, time_col] if c in raw_df.columns]
 
@@ -154,7 +159,6 @@ if not raw_df.empty:
     with tab3:
         st.subheader("품목별 예정 수량 합계")
         
-        # 💡 [요청 반영] 탭 3에도 날짜 필터 추가
         all_pending = raw_df[~raw_df.index.isin(st.session_state['confirmed_indices'])]
         
         if not all_pending.empty:
