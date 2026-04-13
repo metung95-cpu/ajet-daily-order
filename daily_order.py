@@ -58,6 +58,17 @@ def load_order_data():
         df.columns = df.columns.str.strip()
         df = df.loc[:, df.columns != '']
         
+        # 품명 컬럼 확인
+        item_col = "품명 브랜드 등급 EST"
+        
+        if item_col in df.columns:
+            # 1. 앞뒤 공백 제거
+            df[item_col] = df[item_col].astype(str).str.strip()
+            # 💡 [핵심 수정] '냉'으로 시작하는 모든 품목(냉장)을 아예 데이터에서 제거합니다.
+            df = df[~df[item_col].str.startswith('냉')]
+            # 3. 빈 값 제거
+            df = df[df[item_col] != ""]
+            
         # 수량 정수 변환 및 0 제거
         qty_col = "수량(BOX)"
         if qty_col in df.columns:
@@ -84,17 +95,13 @@ if not raw_df.empty:
     if 'confirmed_indices' not in st.session_state:
         st.session_state['confirmed_indices'] = set()
 
+    # 컬럼 정의
     date_col = next((c for c in raw_df.columns if '날짜' in c or '일자' in c or '일' in c), "날짜")
     item_col = "품명 브랜드 등급 EST"
     qty_col = "수량(BOX)"
     manager_col = "담당자"
     client_col = "거래처명"
     time_col = "시간"
-
-    # 💡 [핵심] 품목명 앞뒤의 보이지 않는 공백을 제거하여 정렬 시 똑같은 항목으로 묶이게 만듭니다!
-    if item_col in raw_df.columns:
-        raw_df[item_col] = raw_df[item_col].astype(str).str.strip()
-        raw_df = raw_df[raw_df[item_col] != ""]
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
@@ -111,7 +118,7 @@ if not raw_df.empty:
         if date_col in raw_df.columns:
             u_dates = [d for d in raw_df[date_col].unique() if str(d).strip() != '']
             sorted_dates = sort_dates(u_dates)
-            selected_date_t1 = st.selectbox("📅 조회 날짜 선택", ["전체 보기"] + sorted_dates, key="t1_date")
+            selected_date_t1 = st.selectbox("📅 조회 날짜 선택 (냉장 제외)", ["전체 보기"] + sorted_dates, key="t1_date")
             pending_df = raw_df.copy()
             if selected_date_t1 != "전체 보기":
                 pending_df = pending_df[pending_df[date_col] == selected_date_t1]
@@ -120,17 +127,15 @@ if not raw_df.empty:
 
         pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
         
-        # 💡 [정렬 핵심] 품목명으로 정렬하고, 같은 품목 내에서는 거래처명 순으로 정렬합니다.
+        # 품목명 -> 거래처명 정렬
         if item_col in pending_df.columns:
             sort_cols = [item_col]
-            if client_col in pending_df.columns:
-                sort_cols.append(client_col)
+            if client_col in pending_df.columns: sort_cols.append(client_col)
             pending_df = pending_df.sort_values(by=sort_cols)
         
         if not pending_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
-
             t1_height = int((len(pending_view) + 1) * 35) + 20
 
             edited_df_t1 = st.data_editor(
@@ -156,17 +161,13 @@ if not raw_df.empty:
     with tab2:
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
-            
-            # 💡 [정렬 핵심] 확정 탭도 동일하게 품목명 -> 거래처명 순으로 정렬합니다.
             if item_col in confirmed_df.columns:
                 sort_cols = [item_col]
-                if client_col in confirmed_df.columns:
-                    sort_cols.append(client_col)
+                if client_col in confirmed_df.columns: sort_cols.append(client_col)
                 confirmed_df = confirmed_df.sort_values(by=sort_cols)
                 
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
-            
             t2_height = int((len(conf_view) + 1) * 35) + 20
 
             edited_df_t2 = st.data_editor(
@@ -209,12 +210,7 @@ if not raw_df.empty:
                 pivot_df[manager_col] = pivot_df[manager_col].replace('', '미지정').fillna('미지정')
                 
                 pivot_table = pd.pivot_table(
-                    pivot_df, 
-                    values=qty_col, 
-                    index=item_col, 
-                    columns=manager_col, 
-                    aggfunc='sum', 
-                    fill_value=0
+                    pivot_df, values=qty_col, index=item_col, columns=manager_col, aggfunc='sum', fill_value=0
                 )
                 
                 pivot_table['총 합계'] = pivot_table.sum(axis=1)
@@ -228,9 +224,9 @@ if not raw_df.empty:
                 t3_height = int((len(pivot_display) + 1) * 35) + 20
                 st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=t3_height)
             else:
-                st.warning("상세 집계를 위한 컬럼을 찾을 수 없습니다.")
+                st.warning("집계 컬럼을 찾을 수 없습니다.")
         else:
-            st.write("집계할 데이터가 없습니다.")
+            st.write("집계할 예정 데이터가 없습니다.")
 
 else:
-    st.info("데이터 로딩 중...")
+    st.info("냉동 품목 발주 내역이 없거나 데이터를 로딩 중입니다.")
