@@ -65,7 +65,7 @@ def load_order_data():
 # ------------------------------------------------------------------
 # 3. 메인 로직 및 탭 구성
 # ------------------------------------------------------------------
-st.title("🥩 에이젯 발주관리(운영부)")
+st.title("🥩 에이젯 발주확인(운영부)")
 st.sidebar.success(f"현재 접속: AZ 관리자")
 if st.sidebar.button("로그아웃"):
     st.session_state["logged_in"] = False
@@ -89,7 +89,7 @@ if not raw_df.empty:
     if item_col in raw_df.columns:
         raw_df = raw_df[raw_df[item_col].astype(str).str.strip() != ""]
 
-    tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 수량 집계(품목/담당자)"])
+    tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
     actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, time_col] if c in raw_df.columns]
 
@@ -145,7 +145,6 @@ if not raw_df.empty:
     with tab2:
         st.subheader("출고 확정 내역 (체크 시 다시 예정으로 이동)")
         
-        # 확정된 데이터만 필터링
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
         
         if not confirmed_df.empty:
@@ -180,12 +179,11 @@ if not raw_df.empty:
             st.write("확정 내역이 없습니다.")
 
     with tab3:
-        st.subheader("예정 수량 집계")
+        st.subheader("🥩 품목별 / 👤 담당자별 출고 예정 수량")
         
         all_pending = raw_df[~raw_df.index.isin(st.session_state['confirmed_indices'])]
         
         if not all_pending.empty:
-            # 날짜 선택 드롭다운
             if date_col in all_pending.columns:
                 u_dates_t3 = [d for d in all_pending[date_col].unique() if str(d).strip() != '']
                 sorted_dates_t3 = sort_dates(u_dates_t3)
@@ -194,37 +192,42 @@ if not raw_df.empty:
                 if selected_date_t3 != "전체 보기":
                     all_pending = all_pending[all_pending[date_col] == selected_date_t3]
 
-            # 💡 집계 화면을 두 개의 열로 나눕니다.
-            col1, col2 = st.columns(2)
-            
-            # --- 품목별 집계 (왼쪽) ---
-            with col1:
-                st.markdown("#### 🥩 품목별 수량")
-                if qty_col in all_pending.columns and item_col in all_pending.columns:
-                    summary_item_df = all_pending.copy()
-                    summary_item_df[qty_col] = pd.to_numeric(summary_item_df[qty_col].str.replace(',', ''), errors='coerce').fillna(0)
-                    summary_item = summary_item_df.groupby(item_col)[qty_col].sum().reset_index()
-                    summary_item.columns = ['품목 (브랜드/등급/EST)', '합계(BOX)']
-                    summary_item = summary_item[summary_item['합계(BOX)'] > 0].sort_values('품목 (브랜드/등급/EST)')
-                    st.dataframe(summary_item, use_container_width=True, hide_index=True)
-                else:
-                    st.warning(f"컬럼 '{item_col}' 또는 '{qty_col}'을 찾을 수 없습니다.")
+            # 💡 [피벗 테이블 로직 추가] 품목(행) x 담당자(열)
+            if qty_col in all_pending.columns and item_col in all_pending.columns and manager_col in all_pending.columns:
+                pivot_df = all_pending.copy()
+                
+                # 수량 컬럼을 숫자로 변환
+                pivot_df[qty_col] = pd.to_numeric(pivot_df[qty_col].str.replace(',', ''), errors='coerce').fillna(0)
+                
+                # 담당자 이름이 없는 경우 '미지정'으로 처리
+                pivot_df[manager_col] = pivot_df[manager_col].replace('', '미지정')
+                pivot_df[manager_col] = pivot_df[manager_col].fillna('미지정')
+                
+                # 피벗 테이블 생성
+                pivot_table = pd.pivot_table(
+                    pivot_df, 
+                    values=qty_col, 
+                    index=item_col, 
+                    columns=manager_col, 
+                    aggfunc='sum', 
+                    fill_value=0
+                )
+                
+                # '총 합계' 컬럼 추가
+                pivot_table['총 합계'] = pivot_table.sum(axis=1)
+                
+                # 0인 데이터 필터링 및 인덱스 리셋
+                pivot_table = pivot_table[pivot_table['총 합계'] > 0]
+                pivot_table = pivot_table.reset_index()
+                
+                # 품목명 컬럼 이름 변경
+                pivot_table.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
-            # --- 담당자별 집계 (오른쪽) ---
-            with col2:
-                st.markdown("#### 👤 담당자별 수량")
-                if qty_col in all_pending.columns and manager_col in all_pending.columns:
-                    summary_manager_df = all_pending.copy()
-                    summary_manager_df[qty_col] = pd.to_numeric(summary_manager_df[qty_col].str.replace(',', ''), errors='coerce').fillna(0)
-                    summary_manager = summary_manager_df.groupby(manager_col)[qty_col].sum().reset_index()
-                    summary_manager.columns = ['담당자', '합계(BOX)']
-                    # 이름 없는(빈칸) 담당자 처리 및 0 초과 항목 필터링
-                    summary_manager = summary_manager[(summary_manager['합계(BOX)'] > 0) & (summary_manager['담당자'].astype(str).str.strip() != "")]
-                    summary_manager = summary_manager.sort_values('합계(BOX)', ascending=False) # 수량 많은 순 정렬
-                    st.dataframe(summary_manager, use_container_width=True, hide_index=True)
-                else:
-                    st.warning(f"컬럼 '{manager_col}' 또는 '{qty_col}'을 찾을 수 없습니다.")
-
+                st.markdown("---")
+                # 피벗 테이블 출력 (전체 화면 꽉 차게)
+                st.dataframe(pivot_table, use_container_width=True, hide_index=True)
+            else:
+                st.warning("수량, 품목, 또는 담당자 컬럼을 찾을 수 없어 상세 집계가 불가능합니다.")
         else:
             st.write("집계할 데이터가 없습니다.")
 
