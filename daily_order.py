@@ -4,6 +4,7 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import time
 import re
+import datetime
 
 # ------------------------------------------------------------------
 # 1. 기본 설정 및 보안 (로그인)
@@ -58,17 +59,12 @@ def load_order_data():
         df.columns = df.columns.str.strip()
         df = df.loc[:, df.columns != '']
         
-        # 품명 컬럼 확인
+        # 품명 컬럼 확인 및 필터링
         item_col = "품명 브랜드 등급 EST"
-        
         if item_col in df.columns:
-            # 1. 앞뒤 공백 제거
             df[item_col] = df[item_col].astype(str).str.strip()
-            
-            # 💡 [핵심 수정] '냉' 또는 '.냉'으로 시작하는 모든 품목을 한 번에 걸러냅니다.
+            # '냉' 또는 '.냉'으로 시작하는 품목 제외
             df = df[~df[item_col].str.startswith(('냉', '.냉'))]
-            
-            # 3. 빈 값 제거
             df = df[df[item_col] != ""]
             
         # 수량 정수 변환 및 0 제거
@@ -109,18 +105,38 @@ if not raw_df.empty:
 
     actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, time_col] if c in raw_df.columns]
 
+    # 날짜 정렬 및 오늘 날짜 매칭 함수
     def sort_dates(date_list):
         def parse_date(d):
             nums = re.findall(r'\d+', str(d))
             return tuple(map(int, nums)) if nums else (0, 0)
         return sorted(date_list, key=parse_date, reverse=True)
 
+    # 💡 오늘 날짜 찾기 로직
+    today = datetime.datetime.now()
+    today_m_d = f"{today.month}. {today.day}" # 예: 4. 13
+    today_d = str(today.day)                 # 예: 13
+
     # 탭 1: 출고 예정
     with tab1:
         if date_col in raw_df.columns:
             u_dates = [d for d in raw_df[date_col].unique() if str(d).strip() != '']
             sorted_dates = sort_dates(u_dates)
-            selected_date_t1 = st.selectbox("📅 조회 날짜 선택 (냉장 제외)", ["전체 보기"] + sorted_dates, key="t1_date")
+            
+            # 오늘 날짜와 일치하는 인덱스 찾기
+            default_index = 0 # 기본값: 전체 보기
+            for i, d in enumerate(sorted_dates):
+                if today_m_d in str(d) or str(d).strip() == today_d:
+                    default_index = i + 1 # '전체 보기'가 0번이므로 +1
+                    break
+            
+            selected_date_t1 = st.selectbox(
+                "📅 조회 날짜 선택 (냉장 제외)", 
+                ["전체 보기"] + sorted_dates, 
+                index=default_index, 
+                key="t1_date"
+            )
+            
             pending_df = raw_df.copy()
             if selected_date_t1 != "전체 보기":
                 pending_df = pending_df[pending_df[date_col] == selected_date_t1]
@@ -129,7 +145,6 @@ if not raw_df.empty:
 
         pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
         
-        # 품목명 -> 거래처명 정렬
         if item_col in pending_df.columns:
             sort_cols = [item_col]
             if client_col in pending_df.columns: sort_cols.append(client_col)
@@ -157,7 +172,7 @@ if not raw_df.empty:
                 time.sleep(0.5)
                 st.rerun()
         else:
-            st.info("예정된 출고 건이 없습니다.")
+            st.info("선택한 날짜에 예정된 출고 건이 없습니다.")
 
     # 탭 2: 출고 확정
     with tab2:
@@ -203,7 +218,20 @@ if not raw_df.empty:
             if date_col in all_pending.columns:
                 u_dates_t3 = [d for d in all_pending[date_col].unique() if str(d).strip() != '']
                 sorted_dates_t3 = sort_dates(u_dates_t3)
-                selected_date_t3 = st.selectbox("📅 집계 날짜 선택", ["전체 보기"] + sorted_dates_t3, key="t3_date")
+                
+                # 오늘 날짜와 일치하는 인덱스 찾기
+                default_index_t3 = 0
+                for i, d in enumerate(sorted_dates_t3):
+                    if today_m_d in str(d) or str(d).strip() == today_d:
+                        default_index_t3 = i + 1
+                        break
+
+                selected_date_t3 = st.selectbox(
+                    "📅 집계 날짜 선택", 
+                    ["전체 보기"] + sorted_dates_t3, 
+                    index=default_index_t3, 
+                    key="t3_date"
+                )
                 if selected_date_t3 != "전체 보기":
                     all_pending = all_pending[all_pending[date_col] == selected_date_t3]
 
