@@ -91,8 +91,10 @@ if not raw_df.empty:
     client_col = "거래처명"
     time_col = "시간"
 
+    # 💡 [핵심] 품목명 앞뒤의 보이지 않는 공백을 제거하여 정렬 시 똑같은 항목으로 묶이게 만듭니다!
     if item_col in raw_df.columns:
-        raw_df = raw_df[raw_df[item_col].astype(str).str.strip() != ""]
+        raw_df[item_col] = raw_df[item_col].astype(str).str.strip()
+        raw_df = raw_df[raw_df[item_col] != ""]
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
@@ -117,14 +119,18 @@ if not raw_df.empty:
             pending_df = raw_df.copy()
 
         pending_df = pending_df[~pending_df.index.isin(st.session_state['confirmed_indices'])]
+        
+        # 💡 [정렬 핵심] 품목명으로 정렬하고, 같은 품목 내에서는 거래처명 순으로 정렬합니다.
         if item_col in pending_df.columns:
-            pending_df = pending_df.sort_values(by=item_col)
+            sort_cols = [item_col]
+            if client_col in pending_df.columns:
+                sort_cols.append(client_col)
+            pending_df = pending_df.sort_values(by=sort_cols)
         
         if not pending_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
 
-            # 💡 [핵심] 높이를 데이터 개수에 맞게 계산하여 전체를 펼칩니다.
             t1_height = int((len(pending_view) + 1) * 35) + 20
 
             edited_df_t1 = st.data_editor(
@@ -150,12 +156,17 @@ if not raw_df.empty:
     with tab2:
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
+            
+            # 💡 [정렬 핵심] 확정 탭도 동일하게 품목명 -> 거래처명 순으로 정렬합니다.
             if item_col in confirmed_df.columns:
-                confirmed_df = confirmed_df.sort_values(by=item_col)
+                sort_cols = [item_col]
+                if client_col in confirmed_df.columns:
+                    sort_cols.append(client_col)
+                confirmed_df = confirmed_df.sort_values(by=sort_cols)
+                
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
             
-            # 💡 높이 자동 계산 (전체 펼치기)
             t2_height = int((len(conf_view) + 1) * 35) + 20
 
             edited_df_t2 = st.data_editor(
@@ -214,7 +225,6 @@ if not raw_df.empty:
                 pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
                 st.markdown("---")
-                # 💡 높이 자동 계산 (전체 펼치기)
                 t3_height = int((len(pivot_display) + 1) * 35) + 20
                 st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=t3_height)
             else:
