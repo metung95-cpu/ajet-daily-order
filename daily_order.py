@@ -72,7 +72,7 @@ def load_order_data():
 # ------------------------------------------------------------------
 # 3. 메인 로직 및 탭 구성
 # ------------------------------------------------------------------
-st.title("🥩AZ 발주확인(운영부)")
+st.title("🥩 AZ 발주확인(운영부)")
 st.sidebar.success(f"현재 접속: AZ 관리자")
 if st.sidebar.button("로그아웃"):
     st.session_state["logged_in"] = False
@@ -84,7 +84,6 @@ if not raw_df.empty:
     if 'confirmed_indices' not in st.session_state:
         st.session_state['confirmed_indices'] = set()
 
-    # 컬럼 정의
     date_col = next((c for c in raw_df.columns if '날짜' in c or '일자' in c or '일' in c), "날짜")
     item_col = "품명 브랜드 등급 EST"
     qty_col = "수량(BOX)"
@@ -107,7 +106,6 @@ if not raw_df.empty:
 
     # 탭 1: 출고 예정
     with tab1:
-        st.subheader("미출고 발주 건 (1행 고정)")
         if date_col in raw_df.columns:
             u_dates = [d for d in raw_df[date_col].unique() if str(d).strip() != '']
             sorted_dates = sort_dates(u_dates)
@@ -126,14 +124,16 @@ if not raw_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
 
-            # 💡 [핵심 수정] 높이를 600으로 고정하여 제목 줄을 상단에 고정합니다.
+            # 💡 [핵심] 높이를 데이터 개수에 맞게 계산하여 전체를 펼칩니다.
+            t1_height = int((len(pending_view) + 1) * 35) + 20
+
             edited_df_t1 = st.data_editor(
                 pending_view,
                 column_config={"👉 확정": st.column_config.CheckboxColumn("출고완료", width="medium")},
                 disabled=actual_display_cols,
                 hide_index=True,
                 use_container_width=True,
-                height=600, 
+                height=t1_height, 
                 key="editor_pending"
             )
 
@@ -148,7 +148,6 @@ if not raw_df.empty:
 
     # 탭 2: 출고 확정
     with tab2:
-        st.subheader("출고 확정 내역 (1행 고정)")
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
             if item_col in confirmed_df.columns:
@@ -156,14 +155,16 @@ if not raw_df.empty:
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
             
-            # 💡 제목 줄 고정을 위해 높이 고정
+            # 💡 높이 자동 계산 (전체 펼치기)
+            t2_height = int((len(conf_view) + 1) * 35) + 20
+
             edited_df_t2 = st.data_editor(
                 conf_view,
                 column_config={"👉 취소": st.column_config.CheckboxColumn("확정취소", width="medium")},
                 disabled=actual_display_cols,
                 hide_index=True,
                 use_container_width=True,
-                height=600,
+                height=t2_height,
                 key="editor_confirmed"
             )
             
@@ -182,7 +183,6 @@ if not raw_df.empty:
 
     # 탭 3: 집계 현황
     with tab3:
-        st.subheader("📊 품목/담당자별 상세 수량 현황 (1행 고정)")
         all_pending = raw_df[~raw_df.index.isin(st.session_state['confirmed_indices'])]
         
         if not all_pending.empty:
@@ -209,18 +209,18 @@ if not raw_df.empty:
                 pivot_table['총 합계'] = pivot_table.sum(axis=1)
                 pivot_table = pivot_table.sort_values('총 합계', ascending=False)
                 
-                # 정수 변환 및 0 제거
                 pivot_display = pivot_table.astype(int).astype(object).replace(0, "")
                 pivot_display = pivot_display.reset_index()
                 pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
                 st.markdown("---")
-                # 💡 제목 줄 고정을 위해 높이 고정
-                st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=600)
+                # 💡 높이 자동 계산 (전체 펼치기)
+                t3_height = int((len(pivot_display) + 1) * 35) + 20
+                st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=t3_height)
             else:
                 st.warning("상세 집계를 위한 컬럼을 찾을 수 없습니다.")
         else:
-            st.write("집계할 예정 데이터가 없습니다.")
+            st.write("집계할 데이터가 없습니다.")
 
 else:
     st.info("데이터 로딩 중...")
