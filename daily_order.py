@@ -58,7 +58,7 @@ def load_order_data():
         df.columns = df.columns.str.strip()
         df = df.loc[:, df.columns != '']
         
-        # 💡 [핵심] 수량을 숫자로 바꿀 때 아예 '정수(int)'로 못을 박아버립니다!
+        # 수량(BOX) 정수 변환 및 0 제거
         qty_col = "수량(BOX)"
         if qty_col in df.columns:
             df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
@@ -105,14 +105,13 @@ if not raw_df.empty:
             return tuple(map(int, nums)) if nums else (0, 0)
         return sorted(date_list, key=parse_date, reverse=True)
 
+    # 탭 1: 출고 예정
     with tab1:
         st.subheader("미출고 발주 건")
-        
         if date_col in raw_df.columns:
             u_dates = [d for d in raw_df[date_col].unique() if str(d).strip() != '']
             sorted_dates = sort_dates(u_dates)
             selected_date_t1 = st.selectbox("📅 조회 날짜 선택", ["전체 보기"] + sorted_dates, key="t1_date")
-            
             pending_df = raw_df.copy()
             if selected_date_t1 != "전체 보기":
                 pending_df = pending_df[pending_df[date_col] == selected_date_t1]
@@ -147,11 +146,13 @@ if not raw_df.empty:
         else:
             st.info("예정된 출고 건이 없습니다.")
 
+    # 탭 2: 출고 확정
     with tab2:
         st.subheader("출고 확정 내역")
         confirmed_df = raw_df[raw_df.index.isin(st.session_state['confirmed_indices'])].copy()
-        
         if not confirmed_df.empty:
+            if item_col in confirmed_df.columns:
+                confirmed_df = confirmed_df.sort_values(by=item_col)
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
             c_height = int((len(conf_view) + 1) * 35) + 15
@@ -179,9 +180,9 @@ if not raw_df.empty:
         else:
             st.write("확정 내역이 없습니다.")
 
+    # 탭 3: 집계 현황 (표 디자인 수정)
     with tab3:
         st.subheader("🥩 품목별 / 👤 담당자별 출고 예정 현황")
-        
         all_pending = raw_df[~raw_df.index.isin(st.session_state['confirmed_indices'])]
         
         if not all_pending.empty:
@@ -189,7 +190,6 @@ if not raw_df.empty:
                 u_dates_t3 = [d for d in all_pending[date_col].unique() if str(d).strip() != '']
                 sorted_dates_t3 = sort_dates(u_dates_t3)
                 selected_date_t3 = st.selectbox("📅 집계 날짜 선택", ["전체 보기"] + sorted_dates_t3, key="t3_date")
-                
                 if selected_date_t3 != "전체 보기":
                     all_pending = all_pending[all_pending[date_col] == selected_date_t3]
 
@@ -209,13 +209,15 @@ if not raw_df.empty:
                 pivot_table['총 합계'] = pivot_table.sum(axis=1)
                 pivot_table = pivot_table.sort_values('총 합계', ascending=False)
                 
-                # 💡 [핵심] 피벗 테이블의 모든 데이터를 확실하게 정수로 변환 후 0을 지웁니다.
+                # 정수 변환 및 0 제거
                 pivot_display = pivot_table.astype(int).astype(object).replace(0, "")
                 pivot_display = pivot_display.reset_index()
                 pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
                 st.markdown("---")
-                st.dataframe(pivot_display, use_container_width=True, hide_index=True)
+                # 💡 [핵심 수정] 탭 1과 동일한 동적 높이 데이터프레임 적용
+                p_height = int((len(pivot_display) + 1) * 35) + 15
+                st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=p_height)
             else:
                 st.warning("상세 집계를 위한 컬럼을 찾을 수 없습니다.")
         else:
