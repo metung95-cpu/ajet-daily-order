@@ -171,8 +171,8 @@ if not raw_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
             
-            # 💡 [해결책] 데이터 개수대로 커지되, 최대 800px에서 멈추고 내부 스크롤을 생성합니다!
-            t1_height = min(int((len(pending_view) + 1) * 35) + 40, 800)
+            # 💡 [원상복구] 표의 높이를 제한 없이 데이터 개수만큼 무한대로 늘립니다!
+            t1_height = int((len(pending_view) + 1) * 35) + 40
 
             edited_df_t1 = st.data_editor(
                 pending_view,
@@ -205,8 +205,8 @@ if not raw_df.empty:
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
             
-            # 💡 여기도 최대 800px 제한 적용
-            t2_height = min(int((len(conf_view) + 1) * 35) + 40, 800)
+            # 💡 제한 없는 무한 확장
+            t2_height = int((len(conf_view) + 1) * 35) + 40
 
             edited_df_t2 = st.data_editor(
                 conf_view,
@@ -272,8 +272,8 @@ if not raw_df.empty:
 
                 st.markdown("---")
                 
-                # 💡 여기도 최대 800px 제한 적용
-                t3_height = min(int((len(pivot_display) + 1) * 35) + 40, 800)
+                # 💡 제한 없는 무한 확장
+                t3_height = int((len(pivot_display) + 1) * 35) + 40
                 st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=t3_height)
             else:
                 st.warning("집계 컬럼을 찾을 수 없습니다.")
