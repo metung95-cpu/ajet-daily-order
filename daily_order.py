@@ -11,13 +11,30 @@ import datetime
 # ------------------------------------------------------------------
 st.set_page_config(page_title="에이젯 발주 관리 시스템", page_icon="🥩", layout="wide")
 
-# 💡 [핵심 추가] 브라우저를 새로고침해도 8시간 동안 날아가지 않는 '서버 메모리' 생성
+# 💡 [요청 반영] 마우스 스크롤을 내려도 탭 메뉴가 상단에 고정되도록 CSS 주입
+st.markdown("""
+<style>
+    /* Streamlit 탭 리스트 상단 고정 */
+    div[data-testid="stTabs"] > div:first-child {
+        position: sticky;
+        top: 2.875rem; /* 스트림릿 상단 헤더 공간만큼 띄움 */
+        background-color: rgba(14, 17, 23, 0.95); /* 다크모드 배경색 + 약간 투명 */
+        backdrop-filter: blur(5px); /* 뒤에 비치는 글자 흐리게 처리 */
+        z-index: 999;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #333;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# 브라우저를 새로고침해도 8시간 동안 날아가지 않는 '서버 메모리' 생성
 @st.cache_resource
 def get_app_state():
     return {
         "logged_in": False,
         "login_expire_time": 0,
-        "confirmed_indices": set() # 확정 내역을 여기다 안전하게 보관!
+        "confirmed_indices": set() # 이제 여기에 줄 번호가 아닌 '고유 ID'가 저장됩니다.
     }
 
 app_state = get_app_state()
@@ -25,10 +42,9 @@ app_state = get_app_state()
 def check_login():
     current_time = time.time()
     
-    # 로그인 되어있는데 8시간(만료시간)이 지났으면 로그아웃 처리
     if app_state["logged_in"] and current_time > app_state["login_expire_time"]:
         app_state["logged_in"] = False
-        app_state["confirmed_indices"].clear() # 8시간 지나면 깔끔하게 확정 내역도 초기화
+        app_state["confirmed_indices"].clear()
 
     if not app_state["logged_in"]:
         st.title("🔒 에이젯 시스템 접속")
@@ -39,7 +55,6 @@ def check_login():
             if submitted:
                 if user_id == "AZ" and user_pw == "5835":
                     app_state["logged_in"] = True
-                    # 현재 시간 + 8시간(28800초) 설정
                     app_state["login_expire_time"] = current_time + (8 * 3600)
                     st.success("인증되었습니다. 데이터를 불러옵니다...")
                     time.sleep(1)
@@ -87,6 +102,17 @@ def load_order_data():
             df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
             df = df[df[qty_col] > 0]
             
+        # 💡 [핵심 버그 수정] 줄 번호 대신 '고유 식별자(UID)' 생성
+        # 날짜, 거래처명, 품명, 수량 등을 다 합쳐서 절대 중복되지 않는 지문을 만듭니다.
+        uid_cols = [c for c in df.columns if c in ['날짜', '시간', '거래처명', '담당자', '품명 브랜드 등급 EST', '수량(BOX)']]
+        df['UID'] = df[uid_cols].astype(str).agg('_'.join, axis=1)
+        
+        # 만약 완전히 똑같은 시간에 똑같은 거래처, 똑같은 품목을 중복해서 적었을 경우를 대비해 뒤에 번호표 부착
+        df['UID'] = df['UID'] + "_" + df.groupby('UID').cumcount().astype(str)
+        
+        # 이 고유 ID를 인덱스(줄 번호)로 덮어씌웁니다.
+        df.set_index('UID', inplace=True)
+            
         return df
     except Exception as e:
         st.error(f"🚨 데이터 로드 실패: {e}")
@@ -97,7 +123,6 @@ def load_order_data():
 # ------------------------------------------------------------------
 st.title("🥩 AZ 발주확인(운영부)")
 
-# 사이드바에 남은 시간 표시
 st.sidebar.success(f"현재 접속: AZ 관리자")
 remaining_seconds = int(app_state["login_expire_time"] - time.time())
 hours, remainder = divmod(remaining_seconds, 3600)
@@ -157,7 +182,7 @@ if not raw_df.empty:
         else:
             pending_df = raw_df.copy()
 
-        # 💡 세션 스테이트 대신 서버에 저장된 app_state 사용
+        # 이제 UID(고유식별자)를 비교하기 때문에 시트 순서가 바뀌어도 풀리지 않습니다.
         pending_df = pending_df[~pending_df.index.isin(app_state['confirmed_indices'])]
         
         if item_col in pending_df.columns:
