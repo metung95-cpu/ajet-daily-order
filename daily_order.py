@@ -11,30 +11,35 @@ import datetime
 # ------------------------------------------------------------------
 st.set_page_config(page_title="에이젯 발주 관리 시스템", page_icon="🥩", layout="wide")
 
-# 💡 [요청 반영] 마우스 스크롤을 내려도 탭 메뉴가 상단에 고정되도록 CSS 주입
+# 💡 [초강력 수정] 어떤 브라우저/버전에서도 탭이 상단에 고정되도록 CSS 강제 주입
 st.markdown("""
 <style>
-    /* Streamlit 탭 리스트 상단 고정 */
-    div[data-testid="stTabs"] > div:first-child {
-        position: sticky;
-        top: 2.875rem; /* 스트림릿 상단 헤더 공간만큼 띄움 */
-        background-color: rgba(14, 17, 23, 0.95); /* 다크모드 배경색 + 약간 투명 */
-        backdrop-filter: blur(5px); /* 뒤에 비치는 글자 흐리게 처리 */
-        z-index: 999;
-        padding-top: 10px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #333;
+    /* 탭 메뉴 상단 고정 (초강력 버전) */
+    div[data-testid="stTabs"] {
+        overflow: visible !important; 
+    }
+    div[data-testid="stTabs"] > div:nth-child(1) {
+        position: -webkit-sticky !important; /* 사파리 호환 */
+        position: sticky !important;         /* 크롬/엣지 호환 */
+        top: 0px !important;                 /* 화면 맨 위로 딱 붙임 */
+        background-color: #0E1117 !important;/* 다크모드 완벽한 단색 배경 (글자 겹침 방지) */
+        z-index: 999999 !important;          /* 무조건 제일 위로 띄움 */
+        padding-top: 15px !important;
+        padding-bottom: 10px !important;
+        margin-top: -15px !important;
+        border-bottom: 1px solid #444 !important; /* 구분선 */
+        box-shadow: 0px 5px 10px rgba(0,0,0,0.5) !important; /* 아래쪽에 그림자 추가 */
     }
 </style>
 """, unsafe_allow_html=True)
 
-# 브라우저를 새로고침해도 8시간 동안 날아가지 않는 '서버 메모리' 생성
+# 8시간 유지되는 서버 메모리
 @st.cache_resource
 def get_app_state():
     return {
         "logged_in": False,
         "login_expire_time": 0,
-        "confirmed_indices": set() # 이제 여기에 줄 번호가 아닌 '고유 ID'가 저장됩니다.
+        "confirmed_indices": set() # 확정 내역(고유 ID) 보관
     }
 
 app_state = get_app_state()
@@ -102,15 +107,10 @@ def load_order_data():
             df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
             df = df[df[qty_col] > 0]
             
-        # 💡 [핵심 버그 수정] 줄 번호 대신 '고유 식별자(UID)' 생성
-        # 날짜, 거래처명, 품명, 수량 등을 다 합쳐서 절대 중복되지 않는 지문을 만듭니다.
+        # 고유 식별자(UID) 생성 로직
         uid_cols = [c for c in df.columns if c in ['날짜', '시간', '거래처명', '담당자', '품명 브랜드 등급 EST', '수량(BOX)']]
         df['UID'] = df[uid_cols].astype(str).agg('_'.join, axis=1)
-        
-        # 만약 완전히 똑같은 시간에 똑같은 거래처, 똑같은 품목을 중복해서 적었을 경우를 대비해 뒤에 번호표 부착
         df['UID'] = df['UID'] + "_" + df.groupby('UID').cumcount().astype(str)
-        
-        # 이 고유 ID를 인덱스(줄 번호)로 덮어씌웁니다.
         df.set_index('UID', inplace=True)
             
         return df
@@ -182,7 +182,6 @@ if not raw_df.empty:
         else:
             pending_df = raw_df.copy()
 
-        # 이제 UID(고유식별자)를 비교하기 때문에 시트 순서가 바뀌어도 풀리지 않습니다.
         pending_df = pending_df[~pending_df.index.isin(app_state['confirmed_indices'])]
         
         if item_col in pending_df.columns:
