@@ -11,28 +11,6 @@ import datetime
 # ------------------------------------------------------------------
 st.set_page_config(page_title="에이젯 발주 관리 시스템", page_icon="🥩", layout="wide")
 
-# 💡 [초강력 수정] 어떤 브라우저/버전에서도 탭이 상단에 고정되도록 CSS 강제 주입
-st.markdown("""
-<style>
-    /* 탭 메뉴 상단 고정 (초강력 버전) */
-    div[data-testid="stTabs"] {
-        overflow: visible !important; 
-    }
-    div[data-testid="stTabs"] > div:nth-child(1) {
-        position: -webkit-sticky !important; /* 사파리 호환 */
-        position: sticky !important;         /* 크롬/엣지 호환 */
-        top: 0px !important;                 /* 화면 맨 위로 딱 붙임 */
-        background-color: #0E1117 !important;/* 다크모드 완벽한 단색 배경 (글자 겹침 방지) */
-        z-index: 999999 !important;          /* 무조건 제일 위로 띄움 */
-        padding-top: 15px !important;
-        padding-bottom: 10px !important;
-        margin-top: -15px !important;
-        border-bottom: 1px solid #444 !important; /* 구분선 */
-        box-shadow: 0px 5px 10px rgba(0,0,0,0.5) !important; /* 아래쪽에 그림자 추가 */
-    }
-</style>
-""", unsafe_allow_html=True)
-
 # 8시간 유지되는 서버 메모리
 @st.cache_resource
 def get_app_state():
@@ -107,7 +85,7 @@ def load_order_data():
             df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
             df = df[df[qty_col] > 0]
             
-        # 고유 식별자(UID) 생성 로직
+        # 고유 식별자(UID) 생성 로직 (확정 풀림 방지)
         uid_cols = [c for c in df.columns if c in ['날짜', '시간', '거래처명', '담당자', '품명 브랜드 등급 EST', '수량(BOX)']]
         df['UID'] = df[uid_cols].astype(str).agg('_'.join, axis=1)
         df['UID'] = df['UID'] + "_" + df.groupby('UID').cumcount().astype(str)
@@ -192,7 +170,9 @@ if not raw_df.empty:
         if not pending_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
-            t1_height = int((len(pending_view) + 1) * 35) + 20
+            
+            # 💡 [해결책] 데이터 개수대로 커지되, 최대 800px에서 멈추고 내부 스크롤을 생성합니다!
+            t1_height = min(int((len(pending_view) + 1) * 35) + 40, 800)
 
             edited_df_t1 = st.data_editor(
                 pending_view,
@@ -224,7 +204,9 @@ if not raw_df.empty:
                 
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
-            t2_height = int((len(conf_view) + 1) * 35) + 20
+            
+            # 💡 여기도 최대 800px 제한 적용
+            t2_height = min(int((len(conf_view) + 1) * 35) + 40, 800)
 
             edited_df_t2 = st.data_editor(
                 conf_view,
@@ -289,7 +271,9 @@ if not raw_df.empty:
                 pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
 
                 st.markdown("---")
-                t3_height = int((len(pivot_display) + 1) * 35) + 20
+                
+                # 💡 여기도 최대 800px 제한 적용
+                t3_height = min(int((len(pivot_display) + 1) * 35) + 40, 800)
                 st.dataframe(pivot_display, use_container_width=True, hide_index=True, height=t3_height)
             else:
                 st.warning("집계 컬럼을 찾을 수 없습니다.")
