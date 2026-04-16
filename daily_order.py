@@ -85,7 +85,7 @@ def load_order_data():
             df[qty_col] = pd.to_numeric(df[qty_col].astype(str).str.replace(',', ''), errors='coerce').fillna(0).astype(int)
             df = df[df[qty_col] > 0]
             
-        # 고유 식별자(UID) 생성 로직 (확정 풀림 방지)
+        # 고유 식별자(UID) 생성 로직
         uid_cols = [c for c in df.columns if c in ['날짜', '시간', '거래처명', '담당자', '품명 브랜드 등급 EST', '수량(BOX)']]
         df['UID'] = df[uid_cols].astype(str).agg('_'.join, axis=1)
         df['UID'] = df['UID'] + "_" + df.groupby('UID').cumcount().astype(str)
@@ -114,7 +114,6 @@ if st.sidebar.button("수동 로그아웃"):
 raw_df = load_order_data()
 
 if not raw_df.empty:
-    # 컬럼 동적 찾기
     date_col = next((c for c in raw_df.columns if '날짜' in c or '일자' in c or '일' in c), "날짜")
     item_col = "품명 브랜드 등급 EST"
     qty_col = "수량(BOX)"
@@ -126,15 +125,18 @@ if not raw_df.empty:
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
-    # 잠금 처리할 원본 컬럼들 (수정 방지용)
-    actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, time_col] if c in raw_df.columns]
-
-    # 글자가 잘리지 않도록 컬럼별로 넉넉한 넓이 강제 지정
+    # 💡 테블릿에서 짤리지 않게 최적화된 너비 설정
     base_col_config = {
-        item_col: st.column_config.TextColumn(width="large"),
-        note_col: st.column_config.TextColumn(width="large"),
-        add_col: st.column_config.TextColumn(width="medium"),
-        client_col: st.column_config.TextColumn(width="medium")
+        "👉 확정": st.column_config.CheckboxColumn("출고완료", width="small"),
+        "👉 취소": st.column_config.CheckboxColumn("확정취소", width="small"),
+        date_col: st.column_config.TextColumn("일자", width="small"),
+        client_col: st.column_config.TextColumn("거래처명", width="medium"),
+        manager_col: st.column_config.TextColumn("담당자", width="small"),
+        item_col: st.column_config.TextColumn("품명", width="medium"),
+        qty_col: st.column_config.NumberColumn("수량", width="small"),
+        note_col: st.column_config.TextColumn("비고", width="medium"),
+        add_col: st.column_config.TextColumn("추가", width="small"),
+        time_col: st.column_config.TextColumn("시간", width="small")
     }
 
     def sort_dates(date_list):
@@ -159,13 +161,7 @@ if not raw_df.empty:
                     default_index = i + 1
                     break
             
-            selected_date_t1 = st.selectbox(
-                "📅 조회 날짜 선택 (냉장 제외)", 
-                ["전체 보기"] + sorted_dates, 
-                index=default_index, 
-                key="t1_date"
-            )
-            
+            selected_date_t1 = st.selectbox("📅 날짜 선택", ["전체 보기"] + sorted_dates, index=default_index, key="t1_date")
             pending_df = raw_df.copy()
             if selected_date_t1 != "전체 보기":
                 pending_df = pending_df[pending_df[date_col] == selected_date_t1]
@@ -175,31 +171,23 @@ if not raw_df.empty:
         pending_df = pending_df[~pending_df.index.isin(app_state['confirmed_indices'])]
         
         if item_col in pending_df.columns:
-            sort_cols = [item_col]
-            if client_col in pending_df.columns: sort_cols.append(client_col)
-            pending_df = pending_df.sort_values(by=sort_cols)
+            pending_df = pending_df.sort_values(by=[item_col])
         
         if not pending_df.empty:
-            pending_view = pending_df[actual_display_cols].copy()
-            pending_view["👉 확정"] = False 
+            pending_df["👉 확정"] = False 
             
-            # 💡 [핵심 수정] 요청하신 순서대로 열(Column) 배치
-            ordered_cols_t1 = [c for c in [date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, "👉 확정", time_col] if c in pending_view.columns]
-            pending_view = pending_view[ordered_cols_t1]
-            
-            t1_height = int((len(pending_view) + 1) * 35) + 40
-            
-            # 확정 체크박스 설정 추가
-            t1_config = base_col_config.copy()
-            t1_config["👉 확정"] = st.column_config.CheckboxColumn("출고완료", width="small")
+            # 💡 [핵심] 열 순서 변경: 출고완료가 날짜 바로 옆(왼쪽)으로 오도록 배치
+            ordered_cols = ["👉 확정", date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, time_col]
+            display_pending = pending_df[[c for c in ordered_cols if c in pending_df.columns or c == "👉 확정"]]
 
+            # 💡 use_container_width=True 로 테블릿 화면에 꽉 맞춤
             edited_df_t1 = st.data_editor(
-                pending_view,
-                column_config=t1_config,
-                disabled=actual_display_cols,
+                display_pending,
+                column_config=base_col_config,
+                disabled=[c for c in display_pending.columns if c != "👉 확정"],
                 hide_index=True,
-                use_container_width=False,
-                height=t1_height, 
+                use_container_width=True,
+                height=int((len(display_pending) + 1) * 35) + 40,
                 key="editor_pending"
             )
 
@@ -210,37 +198,25 @@ if not raw_df.empty:
                 time.sleep(0.5)
                 st.rerun()
         else:
-            st.info("선택한 날짜에 예정된 출고 건이 없습니다.")
+            st.info("예정된 출고 건이 없습니다.")
 
     # 탭 2: 출고 확정
     with tab2:
         confirmed_df = raw_df[raw_df.index.isin(app_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
-            if item_col in confirmed_df.columns:
-                sort_cols = [item_col]
-                if client_col in confirmed_df.columns: sort_cols.append(client_col)
-                confirmed_df = confirmed_df.sort_values(by=sort_cols)
-                
-            conf_view = confirmed_df[actual_display_cols].copy()
-            conf_view["👉 취소"] = False 
+            confirmed_df["👉 취소"] = False
             
-            # 💡 [핵심 수정] 요청하신 순서대로 열(Column) 배치
-            ordered_cols_t2 = [c for c in [date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, "👉 취소", time_col] if c in conf_view.columns]
-            conf_view = conf_view[ordered_cols_t2]
-            
-            t2_height = int((len(conf_view) + 1) * 35) + 40
-            
-            # 취소 체크박스 설정 추가
-            t2_config = base_col_config.copy()
-            t2_config["👉 취소"] = st.column_config.CheckboxColumn("확정취소", width="small")
+            # 💡 열 순서 변경 (출고완료 대신 확정취소 버튼 배치)
+            ordered_cols_t2 = ["👉 취소", date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, time_col]
+            display_confirmed = confirmed_df[[c for c in ordered_cols_t2 if c in confirmed_df.columns or c == "👉 취소"]]
 
             edited_df_t2 = st.data_editor(
-                conf_view,
-                column_config=t2_config,
-                disabled=actual_display_cols,
+                display_confirmed,
+                column_config=base_col_config,
+                disabled=[c for c in display_confirmed.columns if c != "👉 취소"],
                 hide_index=True,
-                use_container_width=False,
-                height=t2_height,
+                use_container_width=True,
+                height=int((len(display_confirmed) + 1) * 35) + 40,
                 key="editor_confirmed"
             )
             
@@ -250,67 +226,27 @@ if not raw_df.empty:
                 st.toast(f"{len(canceled_now)}건 확정 취소!")
                 time.sleep(0.5)
                 st.rerun()
-                
-            if st.button("전체 내역 초기화 (다시 예정으로)"):
-                app_state['confirmed_indices'].clear()
-                st.rerun()
         else:
             st.write("확정 내역이 없습니다.")
 
     # 탭 3: 집계 현황
     with tab3:
         all_pending = raw_df[~raw_df.index.isin(app_state['confirmed_indices'])]
-        
         if not all_pending.empty:
-            if date_col in all_pending.columns:
-                u_dates_t3 = [d for d in all_pending[date_col].unique() if str(d).strip() != '']
-                sorted_dates_t3 = sort_dates(u_dates_t3)
-                
-                default_index_t3 = 0
-                for i, d in enumerate(sorted_dates_t3):
-                    if today_m_d in str(d) or str(d).strip() == today_d:
-                        default_index_t3 = i + 1
-                        break
-
-                selected_date_t3 = st.selectbox(
-                    "📅 집계 날짜 선택", 
-                    ["전체 보기"] + sorted_dates_t3, 
-                    index=default_index_t3, 
-                    key="t3_date"
-                )
-                if selected_date_t3 != "전체 보기":
-                    all_pending = all_pending[all_pending[date_col] == selected_date_t3]
-
-            if qty_col in all_pending.columns and item_col in all_pending.columns and manager_col in all_pending.columns:
-                pivot_df = all_pending.copy()
-                pivot_df[manager_col] = pivot_df[manager_col].replace('', '미지정').fillna('미지정')
-                
-                pivot_table = pd.pivot_table(
-                    pivot_df, values=qty_col, index=item_col, columns=manager_col, aggfunc='sum', fill_value=0
-                )
-                
-                pivot_table['총 합계'] = pivot_table.sum(axis=1)
-                pivot_table = pivot_table.sort_values('총 합계', ascending=False)
-                
-                pivot_display = pivot_table.astype(int).astype(object).replace(0, "")
-                pivot_display = pivot_display.reset_index()
-                pivot_display.rename(columns={item_col: '품목 (브랜드/등급/EST)'}, inplace=True)
-
-                st.markdown("---")
-                
-                t3_height = int((len(pivot_display) + 1) * 35) + 40
-                
-                st.dataframe(
-                    pivot_display, 
-                    use_container_width=False, 
-                    column_config={'품목 (브랜드/등급/EST)': st.column_config.TextColumn(width="large")},
-                    hide_index=True, 
-                    height=t3_height
-                )
-            else:
-                st.warning("집계 컬럼을 찾을 수 없습니다.")
+            pivot_table = pd.pivot_table(
+                all_pending, values=qty_col, index=item_col, columns=manager_col, aggfunc='sum', fill_value=0
+            )
+            pivot_table['총 합계'] = pivot_table.sum(axis=1)
+            pivot_display = pivot_table.sort_values('총 합계', ascending=False).reset_index()
+            
+            st.dataframe(
+                pivot_display, 
+                use_container_width=True, 
+                hide_index=True,
+                height=int((len(pivot_display) + 1) * 35) + 40
+            )
         else:
-            st.write("집계할 예정 데이터가 없습니다.")
+            st.write("집계할 데이터가 없습니다.")
 
 else:
-    st.info("냉동 품목 발주 내역이 없거나 데이터를 로딩 중입니다.")
+    st.info("발주 내역을 로딩 중입니다.")
