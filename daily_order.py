@@ -121,17 +121,15 @@ if not raw_df.empty:
     manager_col = "담당자"
     client_col = "거래처명"
     time_col = "시간"
-    
-    # 💡 [핵심 추가] 비고 열과 추가 열 찾기
     note_col = next((c for c in raw_df.columns if '비고' in c), "비고(이력,수기,취소)")
     add_col = next((c for c in raw_df.columns if '추가' in c), "추가")
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
-    # 💡 화면에 표시할 컬럼 목록에 비고, 추가 열 포함 (보기 편한 순서로 배치)
-    actual_display_cols = [c for c in [date_col, time_col, client_col, manager_col, item_col, qty_col, note_col, add_col] if c in raw_df.columns]
+    # 잠금 처리할 원본 컬럼들 (수정 방지용)
+    actual_display_cols = [c for c in [date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, time_col] if c in raw_df.columns]
 
-    # 💡 [핵심 추가] 글자가 잘리지 않도록 컬럼별로 넉넉한 넓이 강제 지정
+    # 글자가 잘리지 않도록 컬럼별로 넉넉한 넓이 강제 지정
     base_col_config = {
         item_col: st.column_config.TextColumn(width="large"),
         note_col: st.column_config.TextColumn(width="large"),
@@ -185,6 +183,10 @@ if not raw_df.empty:
             pending_view = pending_df[actual_display_cols].copy()
             pending_view["👉 확정"] = False 
             
+            # 💡 [핵심 수정] 요청하신 순서대로 열(Column) 배치
+            ordered_cols_t1 = [c for c in [date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, "👉 확정", time_col] if c in pending_view.columns]
+            pending_view = pending_view[ordered_cols_t1]
+            
             t1_height = int((len(pending_view) + 1) * 35) + 40
             
             # 확정 체크박스 설정 추가
@@ -196,7 +198,7 @@ if not raw_df.empty:
                 column_config=t1_config,
                 disabled=actual_display_cols,
                 hide_index=True,
-                use_container_width=False, # 💡 화면에 억지로 맞추지 않고 내용 길이에 맞춰서 표가 시원하게 늘어납니다!
+                use_container_width=False,
                 height=t1_height, 
                 key="editor_pending"
             )
@@ -222,6 +224,10 @@ if not raw_df.empty:
             conf_view = confirmed_df[actual_display_cols].copy()
             conf_view["👉 취소"] = False 
             
+            # 💡 [핵심 수정] 요청하신 순서대로 열(Column) 배치
+            ordered_cols_t2 = [c for c in [date_col, client_col, manager_col, item_col, qty_col, note_col, add_col, "👉 취소", time_col] if c in conf_view.columns]
+            conf_view = conf_view[ordered_cols_t2]
+            
             t2_height = int((len(conf_view) + 1) * 35) + 40
             
             # 취소 체크박스 설정 추가
@@ -233,7 +239,7 @@ if not raw_df.empty:
                 column_config=t2_config,
                 disabled=actual_display_cols,
                 hide_index=True,
-                use_container_width=False, # 💡 여기도 글자 길이에 맞춰 늘어남
+                use_container_width=False,
                 height=t2_height,
                 key="editor_confirmed"
             )
@@ -294,7 +300,6 @@ if not raw_df.empty:
                 
                 t3_height = int((len(pivot_display) + 1) * 35) + 40
                 
-                # 💡 집계 현황도 품목 이름이 길면 넓게 보여주도록 설정
                 st.dataframe(
                     pivot_display, 
                     use_container_width=False, 
