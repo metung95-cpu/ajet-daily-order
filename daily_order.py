@@ -125,14 +125,13 @@ if not raw_df.empty:
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
-    # 💡 [핵심 수정] 테블릿 화면에 한눈에 들어오도록 너비 최적화
+    # 💡 테블릿 화면에 한눈에 들어오도록 너비 최적화
     base_col_config = {
         date_col: st.column_config.TextColumn("일자", width="small"),
         client_col: st.column_config.TextColumn("거래처명", width="small"),
         manager_col: st.column_config.TextColumn("담당자", width="small"),
         item_col: st.column_config.TextColumn("품명", width="medium"),
         qty_col: st.column_config.NumberColumn("수량", width="small"),
-        # 💡 [요청 반영] 비고란을 아주 작게 설정 (글씨 짤림 허용)
         note_col: st.column_config.TextColumn("비고", width="small"),
         "👉 확정": st.column_config.CheckboxColumn("출고완료", width="small"),
         "👉 취소": st.column_config.CheckboxColumn("확정취소", width="small"),
@@ -175,11 +174,9 @@ if not raw_df.empty:
         if not pending_df.empty:
             pending_df["👉 확정"] = False 
             
-            # 열 순서: [ 일자 > 거래처명 > 담당자 > 품명 > 수량 > 비고 > 출고완료 > 추가 > 시간 ]
             ordered_cols = [date_col, client_col, manager_col, item_col, qty_col, note_col, "👉 확정", add_col, time_col]
             display_pending = pending_df[[c for c in ordered_cols if c in pending_df.columns or c == "👉 확정"]]
 
-            # 💡 use_container_width=True 로 전체 폭 맞춤
             edited_df_t1 = st.data_editor(
                 display_pending,
                 column_config=base_col_config,
@@ -203,9 +200,13 @@ if not raw_df.empty:
     with tab2:
         confirmed_df = raw_df[raw_df.index.isin(app_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
+            
+            # 💡 [추가] 품명 가나다 순 정렬
+            if item_col in confirmed_df.columns:
+                confirmed_df = confirmed_df.sort_values(by=[item_col])
+                
             confirmed_df["👉 취소"] = False
             
-            # 열 순서 동일하게 배치
             ordered_cols_t2 = [date_col, client_col, manager_col, item_col, qty_col, note_col, "👉 취소", add_col, time_col]
             display_confirmed = confirmed_df[[c for c in ordered_cols_t2 if c in confirmed_df.columns or c == "👉 취소"]]
 
