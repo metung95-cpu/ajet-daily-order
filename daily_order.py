@@ -125,7 +125,6 @@ if not raw_df.empty:
 
     tab1, tab2, tab3 = st.tabs(["📦 출고 예정", "✅ 출고 확정", "📊 품목/담당자별 수량 현황"])
 
-    # 💡 테블릿 화면에 한눈에 들어오도록 너비 최적화
     base_col_config = {
         date_col: st.column_config.TextColumn("일자", width="small"),
         client_col: st.column_config.TextColumn("거래처명", width="small"),
@@ -200,8 +199,6 @@ if not raw_df.empty:
     with tab2:
         confirmed_df = raw_df[raw_df.index.isin(app_state['confirmed_indices'])].copy()
         if not confirmed_df.empty:
-            
-            # 💡 [추가] 품명 가나다 순 정렬
             if item_col in confirmed_df.columns:
                 confirmed_df = confirmed_df.sort_values(by=[item_col])
                 
@@ -229,9 +226,19 @@ if not raw_df.empty:
         else:
             st.write("확정 내역이 없습니다.")
 
-    # 탭 3: 집계 현황
+    # 탭 3: 집계 현황 (날짜 연동)
     with tab3:
         all_pending = raw_df[~raw_df.index.isin(app_state['confirmed_indices'])]
+        
+        # 💡 [핵심 수정] 탭 1에서 선택한 날짜 가져오기
+        current_view_date = st.session_state.get("t1_date", "전체 보기")
+        
+        if current_view_date != "전체 보기":
+            all_pending = all_pending[all_pending[date_col] == current_view_date]
+            st.info(f"📅 **{current_view_date}** 발주 건에 대한 담당자별 집계입니다.")
+        else:
+            st.info("📅 **전체 기간** 미확정 건에 대한 담당자별 집계입니다.")
+
         if not all_pending.empty:
             pivot_table = pd.pivot_table(
                 all_pending, values=qty_col, index=item_col, columns=manager_col, aggfunc='sum', fill_value=0
